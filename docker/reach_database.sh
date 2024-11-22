@@ -10,6 +10,8 @@ wait_for_database_to_be_reachable() {
     failure_count=$((failure_count + 1)) 
     sleep 1
     if [ $DD_DATABASE_READINESS_TIMEOUT = $failure_count ]; then
+        echo "Database is not reachable after $DD_DATABASE_READINESS_TIMEOUT seconds"
+        printenv
         exit 1
     fi
     done

@@ -127,6 +127,13 @@ RUN \
   chmod g=u dojo/migrations && \
   true
 RUN \
+  mkdir -p /home/defectdojo && \
+  chmod -R 777 /home/defectdojo
+RUN \
+  mkdir -p /nonexistent && \
+  # chgrp -R 65534 /nonexistent && \
+  chmod -R 777 /nonexistent
+RUN \
     addgroup --gid ${gid} ${appuser} && \
     adduser --system --no-create-home --disabled-password --gecos '' \
         --uid ${uid} --gid ${gid} ${appuser} && \
@@ -161,6 +168,7 @@ ENV \
   # DD_CELERY_WORKER_PREFETCH_MULTIPLIER="128" \
   DD_INITIALIZE=true \
   DD_UWSGI_MODE="socket" \
+  DD_UWSGI_ENDPOINT="0.0.0.0:3031" \
   DD_UWSGI_NUM_OF_PROCESSES="2" \
   DD_UWSGI_NUM_OF_THREADS="2"
 ENTRYPOINT ["/entrypoint-uwsgi.sh"]
