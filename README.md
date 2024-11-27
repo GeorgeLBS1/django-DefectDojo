@@ -47,7 +47,7 @@ docker-compose features and flags. You can run Compose V2 by replacing the hyphe
 
 ```sh
 # Clone the project
-git clone https://github.com/DefectDojo/django-DefectDojo
+git clone https://github.com/GeorgeLBS1/django-DefectDojo
 cd django-DefectDojo
 export DD_DATABASE_URL=postgresql://defectdojo:defectdojo@postgres:5432/defectdojo
 export DD_SECRET_KEY='.'
@@ -57,6 +57,7 @@ export DD_DATABASE_NAME=defectdojo
 export DD_DATABASE_USER=defectdojo
 export DD_DATABASE_PASSWORD=defectdojo
 export DD_PROVIDER_TOKEN='.'
+export DD_CUSTOM_TAG_PARSER="asff=c2c,asff_regex=\\b[Cc]-[A-Za-z0-9]+-\\d+\\b,checkov=engine_iac,xray_on_demand=engine_dependencies,nuclei=engine_dast,trufflehog=engine_secret,twistlock=engine_container,sonarqube=sonarqube,bearer_cli=engine_code,disable_ra=c2c-"
 # Building Docker images
 ./dc-build.sh
 

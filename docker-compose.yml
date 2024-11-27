@@ -53,6 +53,7 @@ services:
       DD_SECRET_KEY: "${DD_SECRET_KEY:-hhZCp@D28z!n@NED*yB!ROMt+WzsY*iq}"
       DD_CREDENTIAL_AES_256_KEY: "${DD_CREDENTIAL_AES_256_KEY:-&91a*agLqesc*0DJ+2*bAbsUZfR*4nLw}"
       DD_DATABASE_READINESS_TIMEOUT: "${DD_DATABASE_READINESS_TIMEOUT:-30}"
+      DD_CUSTOM_TAG_PARSER: "asff=c2c,asff_regex=\\b[Cc]-[A-Za-z0-9]+-\\d+\\b,checkov=engine_iac,xray_on_demand=engine_dependencies,nuclei=engine_dast,trufflehog=engine_secret,twistlock=engine_container,sonarqube=sonarqube,bearer_cli=engine_code,disable_ra=c2c-"
     volumes:
       - type: bind
         source: ./docker/extra_settings
@@ -78,6 +79,7 @@ services:
       DD_SECRET_KEY: "${DD_SECRET_KEY:-hhZCp@D28z!n@NED*yB!ROMt+WzsY*iq}"
       DD_CREDENTIAL_AES_256_KEY: "${DD_CREDENTIAL_AES_256_KEY:-&91a*agLqesc*0DJ+2*bAbsUZfR*4nLw}"
       DD_DATABASE_READINESS_TIMEOUT: "${DD_DATABASE_READINESS_TIMEOUT:-30}"
+      DD_CUSTOM_TAG_PARSER: "asff=c2c,asff_regex=\\b[Cc]-[A-Za-z0-9]+-\\d+\\b,checkov=engine_iac,xray_on_demand=engine_dependencies,nuclei=engine_dast,trufflehog=engine_secret,twistlock=engine_container,sonarqube=sonarqube,bearer_cli=engine_code,disable_ra=c2c-"
     volumes:
       - type: bind
         source: ./docker/extra_settings
@@ -102,6 +104,7 @@ services:
       DD_SECRET_KEY: "${DD_SECRET_KEY:-hhZCp@D28z!n@NED*yB!ROMt+WzsY*iq}"
       DD_CREDENTIAL_AES_256_KEY: "${DD_CREDENTIAL_AES_256_KEY:-&91a*agLqesc*0DJ+2*bAbsUZfR*4nLw}"
       DD_DATABASE_READINESS_TIMEOUT: "${DD_DATABASE_READINESS_TIMEOUT:-30}"
+      DD_CUSTOM_TAG_PARSER: "asff=c2c,asff_regex=\\b[Cc]-[A-Za-z0-9]+-\\d+\\b,checkov=engine_iac,xray_on_demand=engine_dependencies,nuclei=engine_dast,trufflehog=engine_secret,twistlock=engine_container,sonarqube=sonarqube,bearer_cli=engine_code,disable_ra=c2c-"
     volumes:
       - type: bind
         source: ./docker/extra_settings
@@ -128,6 +131,7 @@ services:
       DD_SECRET_KEY: "${DD_SECRET_KEY:-hhZCp@D28z!n@NED*yB!ROMt+WzsY*iq}"
       DD_CREDENTIAL_AES_256_KEY: "${DD_CREDENTIAL_AES_256_KEY:-&91a*agLqesc*0DJ+2*bAbsUZfR*4nLw}"
       DD_DATABASE_READINESS_TIMEOUT: "${DD_DATABASE_READINESS_TIMEOUT:-30}"
+      DD_CUSTOM_TAG_PARSER: "asff=c2c,asff_regex=\\b[Cc]-[A-Za-z0-9]+-\\d+\\b,checkov=engine_iac,xray_on_demand=engine_dependencies,nuclei=engine_dast,trufflehog=engine_secret,twistlock=engine_container,sonarqube=sonarqube,bearer_cli=engine_code,disable_ra=c2c-"
     volumes:
       - type: bind
         source: ./docker/extra_settings
