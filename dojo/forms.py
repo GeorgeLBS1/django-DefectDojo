@@ -4,6 +4,7 @@ import pickle
 import re
 import warnings
 from datetime import date, datetime
+from pathlib import Path
 
 import tagulous
 from crispy_forms.bootstrap import InlineCheckboxes, InlineRadios
@@ -30,6 +31,7 @@ from tagulous.forms import TagField
 
 import dojo.jira_link.helper as jira_helper
 from dojo.authorization.roles_permissions import Permissions, Roles
+from dojo.authorization.authorization import user_has_global_permission
 from dojo.endpoint.utils import endpoint_filter, endpoint_get_or_create, validate_endpoints_to_add
 from dojo.engagement.queries import get_authorized_engagements
 from dojo.finding.queries import get_authorized_findings, get_authorized_findings_by_status
@@ -99,6 +101,8 @@ from dojo.models import (
     Tool_Type,
     User,
     UserContactInfo,
+    ExclusivePermission,
+    Role,
 )
 from dojo.group.queries import get_users_for_group
 from dojo.product.queries import get_authorized_products
@@ -186,10 +190,7 @@ class MonthYearWidget(Widget):
 
         output = []
 
-        if "id" in self.attrs:
-            id_ = self.attrs["id"]
-        else:
-            id_ = f"id_{name}"
+        id_ = self.attrs.get("id", f"id_{name}")
 
         month_choices = list(MONTHS.items())
         if not (self.required and value):
@@ -467,11 +468,31 @@ class DeleteFindingGroupForm(forms.ModelForm):
 
 class Edit_Product_MemberForm(forms.ModelForm):
 
+    exclusive_permission = forms.ModelMultipleChoiceField(
+        queryset=ExclusivePermission.objects.none(),
+        required=False,
+        label="Exclusive Permission")
+
     def __init__(self, *args, **kwargs):
+        user = kwargs.pop("user", None)
         super().__init__(*args, **kwargs)
         self.fields["product"].disabled = True
+        self.fields["role"].disabled = not user_has_global_permission(
+            user, Permissions.Product_Member_Add_Role
+        )
         self.fields["user"].queryset = Dojo_User.objects.order_by("first_name", "last_name")
         self.fields["user"].disabled = True
+        self.fields["exclusive_permission"].queryset = ExclusivePermission.objects.all()
+
+        if self.instance.pk:
+            self.fields["exclusive_permission"].initial = self.instance.exclusive_permission_product.all()
+    
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        if commit:
+            self.save_m2m()
+            instance.exclusive_permission_product.set(self.cleaned_data['exclusive_permission'])
+        return instance
 
     class Meta:
         model = Product_Member
@@ -480,14 +501,33 @@ class Edit_Product_MemberForm(forms.ModelForm):
 
 class Add_Product_MemberForm(forms.ModelForm):
     users = forms.ModelMultipleChoiceField(queryset=Dojo_User.objects.none(), required=True, label="Users")
+    exclusive_permission = forms.ModelMultipleChoiceField(
+        queryset=ExclusivePermission.objects.none(),
+        required=False,
+        label="Exclusive Permission")
 
     def __init__(self, *args, **kwargs):
+        user = kwargs.pop("user", None)
         super().__init__(*args, **kwargs)
         self.fields["product"].disabled = True
+        self.fields["role"].disabled = not user_has_global_permission(user, Permissions.Product_Member_Add_Role)
         current_members = Product_Member.objects.filter(product=self.initial["product"]).values_list("user", flat=True)
+        self.fields["exclusive_permission"].queryset = ExclusivePermission.objects.all()
         self.fields["users"].queryset = Dojo_User.objects.exclude(
             Q(is_superuser=True)
             | Q(id__in=current_members)).exclude(is_active=False).order_by("first_name", "last_name")
+    
+    
+        if self.instance.pk:
+            self.fields["exclusive_permission"].initial = self.instance.exclusive_permission_product.all()
+    
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        if commit:
+            self.save_m2m()
+            for permission in self.cleaned_data['exclusive_permission']:
+                permission.members.add(instance)
+        return instance
 
     class Meta:
         model = Product_Member
@@ -850,7 +890,8 @@ class UploadThreatForm(forms.Form):
 
     def clean(self):
         if (file := self.cleaned_data.get("file", None)) is not None:
-            ext = os.path.splitext(file.name)[1]  # [0] returns path+filename
+            path = Path(file.name)
+            ext = path.suffix
             valid_extensions = [".jpg", ".png", ".pdf"]
             if ext.lower() not in valid_extensions:
                 if accepted_extensions := f"{', '.join(valid_extensions)}":
@@ -1143,7 +1184,8 @@ class BaseManageFileFormSet(forms.BaseModelFormSet):
         for form in self.forms:
             file = form.cleaned_data.get("file", None)
             if file:
-                ext = os.path.splitext(file.name)[1]  # [0] returns path+filename
+                path = Path(file.name)
+                ext = path.suffix
                 valid_extensions = settings.FILE_UPLOAD_TYPES
                 if ext.lower() not in valid_extensions:
                     if accepted_extensions := f"{', '.join(valid_extensions)}":
@@ -1710,7 +1752,7 @@ class FindingForm(forms.ModelForm):
     class Meta:
         model = Finding
         exclude = ("reporter", "url", "numerical_severity", "under_review", "reviewers", "cve", "inherited_tags",
-                   "review_requested_by", "is_mitigated", "jira_creation", "jira_change", "sonarqube_issue", "endpoint_status")
+                   "review_requested_by", "is_mitigated", "jira_creation", "jira_change", "sonarqube_issue", "endpoint_status", "component")
 
 
 class StubFindingForm(forms.ModelForm):
@@ -2692,10 +2734,7 @@ def get_jira_issue_template_dir_choices():
         #     template_list.append((os.path.join(base_dir, filename), filename))
 
         for dirname in dirnames:
-            if base_dir.startswith(settings.TEMPLATE_DIR_PREFIX):
-                clean_base_dir = base_dir[len(settings.TEMPLATE_DIR_PREFIX):]
-            else:
-                clean_base_dir = base_dir
+            clean_base_dir = base_dir.removeprefix(settings.TEMPLATE_DIR_PREFIX)
             template_dir_list.append((os.path.join(clean_base_dir, dirname), dirname))
 
     logger.debug("templates: %s", template_dir_list)
@@ -2829,7 +2868,7 @@ class ToolTypeForm(forms.ModelForm):
         exclude = ["product"]
 
     def __init__(self, *args, **kwargs):
-        instance = kwargs.get("instance", None)
+        instance = kwargs.get("instance")
         self.newly_created = True
         if instance is not None:
             self.newly_created = instance.pk is None
@@ -3381,7 +3420,7 @@ class JIRAFindingForm(forms.Form):
         elif self.cleaned_data.get("push_to_jira", None):
             active = self.finding_form["active"].value()
             verified = self.finding_form["verified"].value()
-            if not active or not verified:
+            if not active or (not verified and get_system_setting("enforce_verified_status", True)):
                 logger.debug("Findings must be active and verified to be pushed to JIRA")
                 error_message = "Findings must be active and verified to be pushed to JIRA"
                 self.add_error("push_to_jira", ValidationError(error_message, code="not_active_or_verified"))
@@ -3571,10 +3610,7 @@ class TextQuestionForm(QuestionForm):
             question=self.question,
         )
 
-        if initial_answer.exists():
-            initial_answer = initial_answer[0].answer
-        else:
-            initial_answer = ""
+        initial_answer = initial_answer[0].answer if initial_answer.exists() else ""
 
         self.fields["answer"] = forms.CharField(
             label=self.question.text,

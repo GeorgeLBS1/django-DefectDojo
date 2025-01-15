@@ -75,7 +75,9 @@ from dojo.api_v2.views import (
     UserProfileView,
     UsersViewSet,
     ComponentViewSet,
+    FindingExclusionViewSet,
 )
+from dojo.exclusive_permission.view import ExclusivePermissionViewSet
 from dojo.api_v2.views import DojoSpectacularAPIView as SpectacularAPIView
 from dojo.banner.urls import urlpatterns as banner_urls
 from dojo.benchmark.urls import urlpatterns as benchmark_urls
@@ -85,6 +87,7 @@ from dojo.development_environment.urls import urlpatterns as dev_env_urls
 from dojo.endpoint.urls import urlpatterns as endpoint_urls
 from dojo.engagement.urls import urlpatterns as eng_urls
 from dojo.finding.urls import urlpatterns as finding_urls
+from dojo.engine_tools.urls import urlpatterns as engine_tools_url
 from dojo.transfer_findings.urls import urlpatterns as transfer_finding_urls
 from dojo.risk_acceptance.urls import urlpatterns as risk_acceptance_urls
 from dojo.finding_group.urls import urlpatterns as finding_group_urls
@@ -161,6 +164,7 @@ v2_api.register(r"product_members", ProductMemberViewSet, basename="product_memb
 v2_api.register(r"product_types", ProductTypeViewSet, basename="product_type")
 v2_api.register(r"product_type_members", ProductTypeMemberViewSet, basename="product_type_member")
 v2_api.register(r"product_type_groups", ProductTypeGroupViewSet, basename="product_type_group")
+v2_api.register(r"exclusive_permission", ExclusivePermissionViewSet, basename="exclusive_permission")
 v2_api.register(r"regulations", RegulationsViewSet, basename="regulations")
 v2_api.register(r"reimport-scan", ReImportScanView, basename="reimportscan")
 v2_api.register(r"risk_acceptance", RiskAcceptanceViewSet, basename="risk_acceptance")
@@ -186,11 +190,13 @@ v2_api.register(r"questionnaire_general_questionnaires", QuestionnaireGeneralSur
 v2_api.register(r"questionnaire_questions", QuestionnaireQuestionViewSet, basename="question")
 v2_api.register(r"transfer_finding", TransferFindingViewSet, basename="transfer_finding")
 v2_api.register(r"transfer_finding_findings", TransferFindingFindingsViewSet, basename="transfer_finding_findings")
+v2_api.register(r"finding_exclusions", FindingExclusionViewSet, basename="finding_exclusions")
 ur = []
 ur += dev_env_urls
 ur += endpoint_urls
 ur += eng_urls
 ur += finding_urls
+ur += engine_tools_url
 ur += transfer_finding_urls
 ur += risk_acceptance_urls
 ur += finding_group_urls

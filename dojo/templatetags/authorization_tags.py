@@ -1,8 +1,10 @@
 import crum
 from django import template
+from django.conf import settings
 
 from dojo.authorization.authorization import user_has_configuration_permission as configuration_permission
 from dojo.authorization.authorization import user_has_global_permission, user_has_permission
+from dojo.authorization.exclusive_permissions import user_has_exclusive_permission
 from dojo.authorization.roles_permissions import Permissions
 from dojo.risk_acceptance.risk_pending import is_permissions_risk_acceptance 
 from dojo.utils import get_product
@@ -43,10 +45,7 @@ def has_global_permission(permission):
 
 @register.filter
 def has_configuration_permission(permission, request):
-    if request is None:
-        user = crum.get_current_user()
-    else:
-        user = crum.get_current_user() or request.user
+    user = crum.get_current_user() if request is None else crum.get_current_user() or request.user
     return configuration_permission(user, permission)
 
 
@@ -58,10 +57,7 @@ def get_user_permissions(user):
 @register.filter
 def user_has_configuration_permission_without_group(user, codename):
     permissions = get_user_permissions(user)
-    for permission in permissions:
-        if permission.codename == codename:
-            return True
-    return False
+    return any(permission.codename == codename for permission in permissions)
 
 
 @cache_for_request
@@ -71,10 +67,7 @@ def get_group_permissions(group):
 
 @register.filter
 def group_has_configuration_permission(group, codename):
-    for permission in get_group_permissions(group):
-        if permission.codename == codename:
-            return True
-    return False
+    return any(permission.codename == codename for permission in get_group_permissions(group))
 
 
 @register.simple_tag
@@ -96,3 +89,27 @@ def enable_button(finding, button):
         return function_action(finding=finding)
     else:
         raise ValueError("Not implemented rules button")
+
+@register.filter
+def has_object_exclusive_permission(obj, permission):
+    return user_has_exclusive_permission(crum.get_current_user(), obj, Permissions[permission])
+
+
+@register.filter
+def is_in_group(user, group_name):
+    if user.is_superuser:
+        return True
+    
+    if user.is_authenticated:
+        return user.groups.filter(dojo_group__name=group_name).exists()
+    return False
+
+
+@register.filter
+def is_in_reviewer_group(user):
+    return is_in_group(user, settings.REVIEWER_GROUP_NAME)
+
+
+@register.filter
+def is_in_approver_group(user):
+    return is_in_group(user, settings.APPROVER_GROUP_NAME)
