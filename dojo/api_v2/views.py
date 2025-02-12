@@ -1,10 +1,12 @@
 import copy
+import time
 import base64
 import logging
 import mimetypes
 from datetime import datetime
 
 import tagulous
+from django.core.exceptions import PermissionDenied 
 from crum import get_current_user
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
@@ -47,6 +49,7 @@ from dojo.transfer_findings.serializers import TransferFindingFindingSerializer,
 from dojo.risk_acceptance.serializers import RiskAcceptanceEmailSerializer
 from dojo.authorization.roles_permissions import Permissions
 from dojo.authorization.authorization import role_has_global_permission, user_has_permission 
+from dojo.authorization.exclusive_permissions import exclude_test_or_finding_with_tag
 from dojo.cred.queries import get_authorized_cred_mappings
 from dojo.endpoint.queries import (
     get_authorized_endpoint_status,
@@ -69,6 +72,7 @@ from dojo.filters import (
     ApiTestFilter,
     ReportFindingFilter,
     ReportFindingFilterWithoutObjectLookups,
+    UserApiFilter
 )
 from dojo.finding.queries import (
     get_authorized_findings,
@@ -958,7 +962,8 @@ class FindingViewSet(
             "test__engagement__product",
             "test__engagement__product__prod_type",
         )
-
+        if settings.ENABLE_FILTER_FOR_TAG_RED_TEAM:
+            findings = exclude_test_or_finding_with_tag(findings)
         return findings.distinct()
 
     def get_serializer_class(self):
@@ -2493,6 +2498,7 @@ class UsersViewSet(
     serializer_class = serializers.UserSerializer
     queryset = User.objects.none()
     filter_backends = (DjangoFilterBackend,)
+    filterset_class = UserApiFilter
     filterset_fields = [
         "id",
         "username",

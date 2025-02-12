@@ -449,11 +449,22 @@ env = environ.FileAwareEnv(
     # Finding exclusion - request expiration days
     DD_FINDING_EXCLUSION_EXPIRATION_DAYS=(int, 30),
     DD_CHECK_EXPIRING_FINDINGEXCLUSION_DAYS=(int, 1),
-    DD_CHECK_NEW_FINDINGS_TO_WHITELIST_DAYS=(int, 1),
+    DD_CHECK_NEW_FINDINGS_TO_EXCLUSION_LIST_DAYS=(int, 1),
     
     # tags for filter to finding exclusion
     DD_FINDING_EXCLUSION_FILTER_TAGS=(str, ""),
-    
+    DD_BLACKLIST_FILTER_TAGS=(str, ""),
+    # User Contacts with exclusive permissions
+    DD_CONTACTS_ASSIGN_EXCLUSIVE_PERMISSIONS=(list, [
+        "product_type_manager",
+        "product_type_technical_contact",
+        "environment_manager",
+        "environment_technical_contact",
+        "product_manager",
+        "technical_contact",
+        "team_manager",
+        ]),
+    DD_ENABLE_FILTER_FOR_TAG_RED_TEAM=(bool, False),
     # Reviewer and approver groups
     DD_REVIEWER_GROUP_NAMES=(str, ""),
     DD_APPROVER_GROUP_NAMES=(str, ""),
@@ -463,7 +474,19 @@ env = environ.FileAwareEnv(
     AZURE_DEVOPS_CACHE_DIR=(str, "/run/defectdojo"),
     # For HTTP requests, how long connection is open before timeout
     # This settings apply only on requests performed by "requests" lib used in Dojo code (if some included lib is using "requests" as well, this does not apply there)
-    DD_REQUESTS_TIMEOUT=(int, 30)
+    DD_REQUESTS_TIMEOUT=(int, 30),
+    
+    # Cybersecurity emails
+    DD_PROVIDERS_CYBERSECURITY_EMAIL=(dict, {}),
+    DD_PRIORIZATION_FIELD_WEIGHTS=(dict, {}),
+    
+    # Twistlock
+    DD_TWISTLOCK_API_URL=(str, ""),
+    DD_TWISTLOCK_ACCESS_KEY=(str, ""),
+    DD_TWISTLOCK_SECRET_KEY=(str, ""),
+    
+    # Priorization
+    DD_CELERY_CRON_CHECK_PRIORIZATION=(str, "0 0 1 1,4,7,10 *"),
 )
 
 
@@ -623,9 +646,15 @@ else:
 if os.getenv("DD_USE_SECRETS_MANAGER") == "true":
     secret_engine_backend = get_secret(env("DD_PROVIDER_SECRET"))
     PROVIDER_TOKEN = secret_engine_backend["tokenRiskAcceptanceApi"]
+    # Twistlock API
+    TWISTLOCK_ACCESS_KEY = secret_engine_backend["prismaAccessKey"]
+    TWISTLOCK_SECRET_KEY = secret_engine_backend["prismaSecretKey"]
 else:
     PROVIDER_TOKEN = env("DD_PROVIDER_TOKEN")
-
+    TWISTLOCK_ACCESS_KEY = env("DD_TWISTLOCK_ACCESS_KEY")
+    TWISTLOCK_SECRET_KEY = env("DD_TWISTLOCK_SECRET_KEY")
+    
+TWISTLOCK_API_URL = env('DD_TWISTLOCK_API_URL')
 # Track migrations through source control rather than making migrations locally
 if env("DD_TRACK_MIGRATIONS"):
     MIGRATION_MODULES = {"dojo": "dojo.db_migrations"}
@@ -1037,7 +1066,8 @@ MAX_TAG_LENGTH = env("DD_MAX_TAG_LENGTH")
 # Approver and reviewer group names
 APPROVER_GROUP_NAME = env("DD_APPROVER_GROUP_NAMES")
 REVIEWER_GROUP_NAME = env("DD_REVIEWER_GROUP_NAMES")
-
+PROVIDERS_CYBERSECURITY_EMAIL = env("DD_PROVIDERS_CYBERSECURITY_EMAIL")
+PRIORIZATION_FIELD_WEIGHTS = env("DD_PRIORIZATION_FIELD_WEIGHTS")
 
 # ------------------------------------------------------------------------------
 # ADMIN
@@ -1430,7 +1460,8 @@ CELERY_PASS_MODEL_BY_ID = env("DD_CELERY_PASS_MODEL_BY_ID")
 CELERY_CRON_SCHEDULE = env("DD_CELERY_CRON_SCHEDULE")
 CELERY_CRON_SCHEDULE_EXPIRE_PERMISSION_KEY = env("DD_CELERY_CRON_SCHEDULE_EXPIRE_PERMISSION_KEY")
 CELERY_EXPIRING_FINDINGEXCLUSION_DAYS = env("DD_CHECK_EXPIRING_FINDINGEXCLUSION_DAYS")
-CELERY_NEW_FINDINGS_TO_WHITELIST_DAYS = env("DD_CHECK_NEW_FINDINGS_TO_WHITELIST_DAYS")
+CELERY_NEW_FINDINGS_TO_EXCLUSION_LIST_DAYS = env("DD_CHECK_NEW_FINDINGS_TO_EXCLUSION_LIST_DAYS")
+CELERY_CRON_CHECK_PRIORIZATION = env("DD_CELERY_CRON_CHECK_PRIORIZATION")
 
 if len(env("DD_CELERY_BROKER_TRANSPORT_OPTIONS")) > 0:
     CELERY_BROKER_TRANSPORT_OPTIONS = json.loads(env("DD_CELERY_BROKER_TRANSPORT_OPTIONS"))
@@ -1486,14 +1517,23 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'dojo.engine_tools.helpers.check_expiring_findingexclusions',
         'schedule': timedelta(days=CELERY_EXPIRING_FINDINGEXCLUSION_DAYS),
     },
-    "check_new_findings_to_whitelist": {
-        'task': 'dojo.engine_tools.helpers.check_new_findings_to_whitelist',
-        'schedule': timedelta(days=CELERY_NEW_FINDINGS_TO_WHITELIST_DAYS),
+    "check_new_findings_to_exclusion_list": {
+        'task': 'dojo.engine_tools.helpers.check_new_findings_to_exclusion_list',
+        'schedule': timedelta(days=CELERY_NEW_FINDINGS_TO_EXCLUSION_LIST_DAYS),
     },
     "notification_webhook_status_cleanup": {
         "task": "dojo.notifications.helper.webhook_status_cleanup",
         "schedule": timedelta(minutes=1),
 
+    },
+    "check_finding_priorization": {
+        "task": "dojo.engine_tools.helpers.check_priorization",
+        "schedule": crontab(
+            minute=CELERY_CRON_CHECK_PRIORIZATION.split()[0],
+            hour=CELERY_CRON_CHECK_PRIORIZATION.split()[1],
+            day_of_month=CELERY_CRON_CHECK_PRIORIZATION.split()[2],
+            month_of_year=CELERY_CRON_CHECK_PRIORIZATION.split()[3],    
+        )
     },
     # 'jira_status_reconciliation': {
     #     'task': 'dojo.tasks.jira_status_reconciliation_task',
@@ -2126,7 +2166,7 @@ VULNERABILITY_URLS = {
     "ELSA": "https://linux.oracle.com/errata/&&.html",  # e.g. https://linux.oracle.com/errata/ELSA-2024-12714.html
     "ELBA": "https://linux.oracle.com/errata/&&.html",  # e.g. https://linux.oracle.com/errata/ELBA-2024-7457.html
     "RXSA": "https://errata.rockylinux.org/",  # e.g. https://errata.rockylinux.org/RXSA-2024:4928
-    "C-": "https://hub.armosec.io/docs/",  # e.g. https://hub.armosec.io/docs/c-0085
+    "C-": env("DD_CUSTOM_TAG_PARSER").get("url_controls_cloud", "https://hub.armosec.io/docs/"),  # e.g. https://hub.armosec.io/docs/c-0085
     "AVD": "https://avd.aquasec.com/misconfig/",  # e.g. https://avd.aquasec.com/misconfig/avd-ksv-01010
     "KHV": "https://avd.aquasec.com/misconfig/kubernetes/",  # e.g. https://avd.aquasec.com/misconfig/kubernetes/khv045
     "CAPEC": "https://capec.mitre.org/data/definitions/&&.html",  # e.g. https://capec.mitre.org/data/definitions/157.html
@@ -2167,11 +2207,14 @@ COMPLIANCE_FILTER_RISK = env("DD_COMPLIANCE_FILTER_RISK")
 # Engine Tools 
 FINDING_EXCLUSION_EXPIRATION_DAYS = env("DD_FINDING_EXCLUSION_EXPIRATION_DAYS")
 FINDING_EXCLUSION_FILTER_TAGS = env("DD_FINDING_EXCLUSION_FILTER_TAGS")
+BLACKLIST_FILTER_TAGS = env("DD_BLACKLIST_FILTER_TAGS")
+# exclusive permission
+CONTACTS_ASSIGN_EXCLUSIVE_PERMISSIONS = env("DD_CONTACTS_ASSIGN_EXCLUSIVE_PERMISSIONS")
+ENABLE_FILTER_FOR_TAG_RED_TEAM = env("DD_ENABLE_FILTER_FOR_TAG_RED_TEAM")
 # Acceptace for email
 ENABLE_ACCEPTANCE_RISK_FOR_EMAIL = env("DD_ENABLE_ACCEPTANCE_RISK_FOR_EMAIL")
 LIFETIME_HOURS_PERMISSION_KEY = env("DD_LIFETIME_HOURS_PERMISSION_KEY")
 HOST_ACCEPTANCE_RISK_FOR_EMAIL = env("DD_HOST_ACCEPTANCE_RISK_FOR_EMAIL")
-
 TENAN_ID = env("DD_TENAN_ID")
 CLIENT_ID = env("DD_CLIENT_ID")
 CALLBACK_URL = env("DD_CALLBACK_URL")

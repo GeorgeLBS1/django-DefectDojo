@@ -6,7 +6,15 @@ from dojo.engine_tools.models import FindingExclusion
 from dojo.engine_tools.filters import FindingExclusionFilter
 from dojo.engine_tools.forms import CreateFindingExclusionForm, FindingExclusionDiscussionForm, EditFindingExclusionForm
 from dojo.engine_tools.helpers import (
-    add_findings_to_whitelist, get_approvers_members, get_reviewers_members, Constants, expire_finding_exclusion_immediately
+    add_findings_to_whitelist, 
+    get_approvers_members, 
+    get_reviewers_members, 
+    Constants, 
+    expire_finding_exclusion_immediately,
+    send_mail_to_cybersecurity,
+    check_priorization,
+    has_valid_comments,
+    add_findings_to_blacklist
 )
 
 # Utils
@@ -40,10 +48,11 @@ def finding_exclusions(request: HttpRequest):
 
 def create_finding_exclusion(request: HttpRequest) -> HttpResponse:
     default_unique_id = request.GET.get('unique_id', '')
+    default_practice = request.GET.get('practice', '') or request.POST.get('practice', '')
     
     duplicate_finding_exclusions = FindingExclusion.objects.filter(
             unique_id_from_tool__in=[default_unique_id],
-    ).exclude(status="Expired").first()
+    ).exclude(status__in=["Expired", "Rejected", "Expired"]).first()
     
     if duplicate_finding_exclusions:
         if duplicate_finding_exclusions.status == "Accepted":
@@ -64,19 +73,32 @@ def create_finding_exclusion(request: HttpRequest) -> HttpResponse:
         
         return HttpResponseRedirect(reverse("finding_exclusions"))
     
-    form = CreateFindingExclusionForm(initial={"unique_id_from_tool": default_unique_id})
+    form = CreateFindingExclusionForm(initial={
+            "unique_id_from_tool": default_unique_id,
+            "practice": default_practice
+        })
 
     finding_exclusion = None
 
     if request.method == "POST":
         form = CreateFindingExclusionForm(request.POST)
         list_type = request.POST.get(key="type")
-        if list_type == "black_list":
-            if not is_in_group(request.user, Constants.REVIEWERS_MAINTAINER_GROUP.value):
-                raise PermissionDenied
         
-        if form.is_valid():
-            exclusion = form.save(commit=False)
+        if form.is_valid():        
+            exclusion: FindingExclusion = form.save(commit=False)
+            if list_type == "black_list":
+                if not is_in_group(request.user, Constants.REVIEWERS_MAINTAINER_GROUP.value):
+                    raise PermissionDenied
+                exclusion.status = "Accepted"
+                exclusion.final_status = "Accepted"
+                exclusion.accepted_at = timezone.now()
+                exclusion.accepted_by = request.user
+                exclusion.status_updated_at = timezone.now()
+                exclusion.status_updated_by = request.user
+                
+                relative_url = reverse("finding_exclusion", args=[str(exclusion.pk)])
+                add_findings_to_blacklist.apply_async(args=(exclusion.unique_id_from_tool, relative_url,))
+            exclusion.practice = default_practice
             exclusion.created_by = request.user
             exclusion.save()
             
@@ -184,9 +206,18 @@ def review_finding_exclusion_request(
         raise PermissionDenied
     
     finding_exclusion = get_object_or_404(FindingExclusion, uuid=fxid)
+        
+    if not has_valid_comments(finding_exclusion, request.user):
+        messages.add_message(
+            request,
+            messages.ERROR,
+            "A comment must be added before marking as reviewed.",
+            extra_tags="alert-danger")
+        return redirect('finding_exclusion', fxid=fxid)
     
     finding_exclusion.status = "Reviewed"
     finding_exclusion.reviewed_at = datetime.now()
+    finding_exclusion.reviewed_by = request.user
     finding_exclusion.status_updated_at = datetime.now()
     finding_exclusion.status_updated_by = request.user
     finding_exclusion.save()
@@ -205,6 +236,8 @@ def review_finding_exclusion_request(
                         url=reverse("finding_exclusion", args=[str(finding_exclusion.pk)]),
                         recipients=approvers)
     
+    send_mail_to_cybersecurity(finding_exclusion)
+    
     messages.add_message(
             request,
             messages.SUCCESS,
@@ -222,11 +255,20 @@ def accept_finding_exclusion_request(request: HttpRequest, fxid: str) -> HttpRes
     try:
         with transaction.atomic():
             finding_exclusion = get_object_or_404(FindingExclusion, uuid=fxid)
-                
+            
+            if not has_valid_comments(finding_exclusion, request.user):
+                messages.add_message(
+                    request,
+                    messages.ERROR,
+                    "A comment must be added before accepting.",
+                    extra_tags="alert-danger")
+                return redirect('finding_exclusion', fxid=fxid)
+            
             finding_exclusion.status = "Accepted"
             finding_exclusion.final_status = "Accepted"
-            finding_exclusion.accepted_at = datetime.now()
-            finding_exclusion.status_updated_at = datetime.now()
+            finding_exclusion.accepted_at = timezone.now()
+            finding_exclusion.accepted_by = request.user
+            finding_exclusion.status_updated_at = timezone.now()
             finding_exclusion.status_updated_by = request.user
             finding_exclusion.expiration_date = timezone.now() + timedelta(days=int(settings.FINDING_EXCLUSION_EXPIRATION_DAYS))
             finding_exclusion.save()
@@ -259,16 +301,23 @@ def accept_finding_exclusion_request(request: HttpRequest, fxid: str) -> HttpRes
     return redirect('finding_exclusion', fxid=fxid)
     
 
-
-
 def reject_finding_exclusion_request(request: HttpRequest, fxid: str) -> HttpResponse:
     if not is_in_group(request.user, Constants.REVIEWERS_MAINTAINER_GROUP.value) and \
         not is_in_group(request.user, Constants.APPROVERS_CYBERSECURITY_GROUP.value):
         raise PermissionDenied
     finding_exclusion = get_object_or_404(FindingExclusion, uuid=fxid)
     
+    if not has_valid_comments(finding_exclusion, request.user):
+        messages.add_message(
+            request,
+            messages.ERROR,
+            "A comment must be added before rejecting.",
+            extra_tags="alert-danger")
+        return redirect('finding_exclusion', fxid=fxid)
+    
     finding_exclusion.status = "Rejected"
     finding_exclusion.final_status = "Rejected"
+    finding_exclusion.rejected_by = request.user
     finding_exclusion.status_updated_at = datetime.now()
     finding_exclusion.status_updated_by = request.user
     finding_exclusion.save()
@@ -332,3 +381,17 @@ def edit_finding_exclusion_request(request: HttpRequest, fxid: str) -> HttpRespo
     return redirect('edit_finding_exclusion', fxid=fxid)
         
         
+def execute_priorization_check(request: HttpRequest) -> HttpResponse:
+    """Execute the priorization check task inmediately"""
+    if not is_in_group(request.user, Constants.REVIEWERS_MAINTAINER_GROUP.value):
+        raise PermissionDenied
+    
+    check_priorization.apply_async()
+    
+    messages.add_message(
+        request,
+        messages.SUCCESS,
+        "Priorization of findings updated",
+        extra_tags="alert-success")
+    
+    return HttpResponseRedirect(reverse("finding_exclusions"))

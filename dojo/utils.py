@@ -562,6 +562,8 @@ def set_duplicate(new_finding, existing_finding):
     existing_finding.impact = new_finding.impact
     existing_finding.references = new_finding.references
     existing_finding.files.set(list(new_finding.files.all()))
+    existing_finding.cvssv3_score = new_finding.cvssv3_score
+    existing_finding.severity_justification = new_finding.severity_justification
     logger.debug("saving new finding: %d", new_finding.id)
     super(Finding, new_finding).save()
     logger.debug("saving existing finding: %d", existing_finding.id)
@@ -2793,6 +2795,22 @@ def validate_group_role(request, user, ptid, viewname, role):
                 extra_tags="alert-warning")
             return HttpResponseRedirect(reverse(viewname, args=(ptid, )))
     return None
+
+
+def user_is_contacts(user, product, contacts_dict=None):
+    if isinstance(product, Finding):
+        product = get_product(product)
+    contacts_all = {}
+    contacts_all.update(product.get_contacts())
+    contacts_all.update(product.prod_type.get_contacts())
+    if contacts_dict:
+        contacts_all = {
+            key: value for key, value in contacts_all.items()
+            if key in contacts_dict
+            }
+
+    return any(contact == user for contact in contacts_all.values())
+
 
 class Response:
 

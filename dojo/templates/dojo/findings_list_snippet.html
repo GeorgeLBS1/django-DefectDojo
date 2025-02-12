@@ -397,7 +397,6 @@
                         </thead>
                         <tbody>
                             {% for finding in findings %}
-                                {% if finding|has_object_exclusive_permission:"Product_Tag_Red_Team"%}
                                     <tr class="{% if finding.active %}active_finding{% else %}inactive_finding{% endif %}">
                                         {% block body %}
                                             {% if not product_tab or product_tab and product_tab.product|has_object_permission:"Finding_Edit" %}
@@ -467,9 +466,9 @@
                                                                     </a>
                                                                 </li>
                                                             {% endif %}
-                                                            {% if finding.cve and not 'white_list' in finding.tags.all %}
+                                                            {% if finding.cve and finding|is_tags_authorized_for_whitelist  %}
                                                                 <li role="presentation">
-                                                                    <a rel="noopener noreferrer" href="{% url 'create_finding_exclusion' %}?unique_id={{ finding.cve }}&product_id={{ finding.test.engagement.product.id }}">
+                                                                    <a rel="noopener noreferrer" href="{% url 'create_finding_exclusion' %}?unique_id={{ finding.cve }}&practice={{ finding.tags.all }}">
                                                                         <i class="fas fa-list"></i> Add to White List
                                                                     </a>
                                                                 </li>
@@ -756,7 +755,6 @@
                                         {% endif %}
                                         {% endblock body %}
                                     </tr>
-                                {% endif %}
                             {% endfor %}
                         </tbody>
                     </table>
